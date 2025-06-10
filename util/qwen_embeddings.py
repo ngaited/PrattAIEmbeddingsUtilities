@@ -41,7 +41,7 @@ class QwenEmbeddings(BaseModel, Embeddings):
     model_name: str = Field(default="qwen3-embedding-8b", description="The model name to use for embeddings")
     rerank_model_name: str = Field(default="qwen3-reranker-8b", description="The model name to use for reranking")
     task: Literal["retrieval", "clustering"] = Field(default="retrieval", description="The embedding task type")
-    batch_size: int = Field(default=32, description="Batch size for processing multiple texts")
+    batch_size: int = Field(default=8, description="Batch size for processing multiple texts")
     show_progress: bool = Field(default=False, description="Whether to show progress bar for batch processing")
     timeout: int = Field(default=30, description="Request timeout in seconds")
     
