@@ -1,4 +1,9 @@
 # qwen_embeddings.py
+"""
+Written by: Ted Ngai, Executive Director, Pratt Advanced Technologies
+Date: 2025-06-10
+"""
+
 import requests
 import pandas as pd
 from tqdm import tqdm

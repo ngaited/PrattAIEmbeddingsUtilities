@@ -1,6 +1,6 @@
 # Pratt AI Embeddings Utilities
 
-A collection of LangChain-compatible embedding utilities for various embedding APIs, developed at Pratt Institute.
+A collection of LangChain-compatible embedding utilities for various embedding APIs, developed by Ted Ngai at Pratt Institute.
 
 ## Overview
 
