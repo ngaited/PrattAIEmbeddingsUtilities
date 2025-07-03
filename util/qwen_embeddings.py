@@ -19,7 +19,7 @@ class QwenEmbeddings(BaseModel, Embeddings):
 
             embeddings = QwenEmbeddings(
                 api_url="http://localhost:8000",
-                model_name="qwen3-embedding-8b"
+                model_name="qwen3-embedding-4b"
             )
             
             # Use with LangChain
@@ -38,8 +38,8 @@ class QwenEmbeddings(BaseModel, Embeddings):
     """
     
     api_url: str = Field(..., description="The base URL of the Qwen API server")
-    model_name: str = Field(default="qwen3-embedding-8b", description="The model name to use for embeddings")
-    rerank_model_name: str = Field(default="qwen3-reranker-8b", description="The model name to use for reranking")
+    model_name: str = Field(default="qwen3-embedding-4b", description="The model name to use for embeddings")
+    rerank_model_name: str = Field(default="qwen3-reranker-4b", description="The model name to use for reranking")
     task: Literal["retrieval", "clustering"] = Field(default="retrieval", description="The embedding task type")
     batch_size: int = Field(default=8, description="Batch size for processing multiple texts")
     show_progress: bool = Field(default=False, description="Whether to show progress bar for batch processing")
