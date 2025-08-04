@@ -37,7 +37,7 @@ Shows how to integrate embeddings with pandas DataFrames for batch processing.
 
 **Features demonstrated:**
 - Embedding DataFrame columns
-- Reranking DataFrame entries
+- Searching similar documents in DataFrames
 - Batch processing with progress tracking
 - Filtering and category-based analysis
 - Multiple query comparisons
@@ -52,7 +52,7 @@ Comprehensive example showing all available features.
 
 **Features demonstrated:**
 - All basic embedding operations
-- Reranking with custom tasks
+- Reranking with Infinity embeddings
 - DataFrame integration
 - Clustering task embeddings
 - LangChain integration (if installed)
@@ -67,7 +67,10 @@ python examples/complete_example.py
 
 Before running the examples, make sure you have:
 
-1. **Qwen API Server Running**: The examples assume a Qwen API server is running at `http://localhost:8000`. You can modify the `api_url` parameter in each script to point to your server.
+1. **API Servers Running**: 
+   - Qwen API server at `http://localhost:8000`
+   - Infinity API server at `http://localhost:8005`
+   You can modify the `api_url` parameter in each script to point to your servers.
 
 2. **Required Dependencies**: Install the required packages:
    ```bash
@@ -86,24 +89,19 @@ Before running the examples, make sure you have:
 To use a different API server or model, modify the initialization parameters:
 
 ```python
+# For Qwen embeddings
 embeddings = QwenEmbeddings(
     api_url="http://your-server:port",  # Change this
     model_name="your-model-name",       # Change this
     task="retrieval",                   # or "clustering"
     show_progress=True
 )
-```
 
-### Using Infinity Embeddings
-
-To use Infinity embeddings instead of Qwen:
-
-```python
-from util.infinityEmbedding import InfinityEmbeddings
-
-embeddings = InfinityEmbeddings(
+# For Infinity embeddings/reranker
+embeddings = InfinityEmbeddingsReranker(
     api_url="http://your-infinity-server:port",
-    model_name="your-infinity-model"
+    model_name="your-embedding-model",
+    rerank_model_name="your-reranker-model"  # Optional
 )
 ```
 
@@ -124,7 +122,7 @@ Combine these examples with vector databases for Retrieval-Augmented Generation 
 ## Troubleshooting
 
 ### Connection Issues
-If you get connection errors, ensure your API server is running and accessible:
+If you get connection errors, ensure your API servers are running and accessible:
 
 ```python
 # Test API health
@@ -138,7 +136,7 @@ For large datasets, use smaller batch sizes:
 ```python
 embeddings = QwenEmbeddings(
     api_url="http://localhost:8000",
-    batch_size=16,  # Reduce from default 32
+    batch_size=16,  # Reduce from default 8
     show_progress=True
 )
 ```

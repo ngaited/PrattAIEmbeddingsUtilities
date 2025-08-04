@@ -10,23 +10,34 @@ This repository contains Python utilities for working with different embedding A
 
 - **LangChain Compatible**: All embedding classes implement the LangChain `Embeddings` interface
 - **Multiple API Support**: Support for Qwen and Infinity embedding servers
+- **Matryoshka Embeddings**: Variable dimension embeddings for memory efficiency
 - **Batch Processing**: Efficient batch processing with progress tracking
-- **Reranking Support**: Built-in reranking capabilities for improved search results
+- **Dual-Mode Reranking**: Both standalone reranking and document compression (Infinity only)
 - **DataFrame Integration**: Direct integration with pandas DataFrames
-- **Health Monitoring**: API health checks and monitoring utilities
+- **Health Monitoring**: Comprehensive API health checks and monitoring utilities
+- **Session Management**: Optimized connection handling for Infinity server
 
 ## Supported APIs
 
 ### Qwen Embeddings (`QwenEmbeddings`)
 - Compatible with Qwen embedding models (e.g., qwen3-embedding-8b)
 - Support for both retrieval and clustering tasks
-- Built-in reranking with qwen3-reranker-8b
-- Comprehensive similarity computation utilities
+- **Matryoshka Support**: Variable dimension embeddings (512, 1024, 2048, etc.)
+- **Batch Endpoint**: Efficient processing of queries and documents separately with `embed_batch()`
+- **Advanced Search**: Built-in similarity search with `search_similar()` method
+- **Dynamic Configuration**: Runtime dimension adjustment with `set_dimensions()` and `with_dimensions()`
+- **API Discovery**: `get_available_models()`, `get_available_tasks()`, and `get_dimension_info()` methods
 
-### Infinity Embeddings (`InfinityEmbeddings`)
+### Infinity Embeddings (`InfinityEmbeddingsReranker`)
+- **Dual Interface**: Implements both `Embeddings` and `BaseDocumentCompressor` interfaces
 - Compatible with Infinity server deployments
-- Support for various open-source embedding models
-- Optimized for local and self-hosted deployments
+- Support for various open-source embedding models (BAAI/bge models, etc.)
+- **Session-Based**: Persistent connection management for improved performance
+- **Document Compression**: LangChain-compatible document reranking with `compress_documents()`
+- **Flexible Reranking**: Direct reranking with `rank()` method, separate models for embeddings and reranking
+- **Matryoshka Support**: Variable dimension embeddings with `dimensions` parameter
+- **Advanced Features**: `embed_batch()`, `search_similar()`, and DataFrame integration
+- **Optimized for Production**: Connection pooling and error recovery
 
 ## Installation
 
@@ -53,6 +64,7 @@ embeddings = QwenEmbeddings(
     api_url="http://localhost:8000",
     model_name="qwen3-embedding-8b",
     task="retrieval",
+    dimensions=1024,  # Optional: Matryoshka dimension support
     show_progress=True
 )
 
@@ -93,6 +105,16 @@ results = vectorstore.similarity_search("your query", k=2)
 ### Reranking Documents
 
 ```python
+# For reranking functionality, use InfinityEmbeddingsReranker
+from util.infinityEmbedding import InfinityEmbeddingsReranker
+
+# Initialize reranker
+reranker = InfinityEmbeddingsReranker(
+    api_url="http://localhost:8005",
+    model_name="BAAI/bge-reranker-v2-m3",
+    top_n=2
+)
+
 # Rerank documents for better relevance
 query = "What is machine learning?"
 documents = [
@@ -101,14 +123,10 @@ documents = [
     "AI and ML are transforming industries."
 ]
 
-reranked_results = embeddings.rerank(
-    query=query,
-    documents=documents,
-    top_n=2
-)
+reranked_results = reranker.rank(query=query, documents=documents)
 
 for result in reranked_results:
-    print(f"Score: {result['relevance_score']:.4f} - {result['document']['text']}")
+    print(f"Score: {result['relevance_score']:.4f} - {result['document']}")
 ```
 
 ## Configuration
@@ -119,7 +137,7 @@ You can configure the embedding services using environment variables:
 
 ```bash
 export QWEN_API_URL="http://localhost:8000"
-export QWEN_MODEL_NAME="qwen3-embedding-8b"
+export QWEN_MODEL_NAME="qwen3-embedding-4b"
 export INFINITY_API_URL="http://localhost:8005"
 ```
 
@@ -150,13 +168,22 @@ df = pd.DataFrame({
 
 embeddings_list = embeddings.embed_dataframe_column(df, 'text')
 
-# Rerank DataFrame entries
-reranked_df = embeddings.rerank_dataframe(
+# Rerank DataFrame entries using InfinityEmbeddingsReranker
+reranker = InfinityEmbeddingsReranker(
+    api_url="http://localhost:8005",
+    model_name="BAAI/bge-reranker-v2-m3"
+)
+
+reranked_results = reranker.rank(
     query="search query",
-    df=df,
-    text_column='text',
+    documents=df['text'].tolist(),
     top_n=2
 )
+
+# Create reranked DataFrame
+reranked_indices = [result['index'] for result in reranked_results]
+reranked_df = df.iloc[reranked_indices].copy()
+reranked_df['relevance_score'] = [result['relevance_score'] for result in reranked_results]
 ```
 
 ### Batch Processing with Progress
@@ -167,11 +194,18 @@ large_document_list = [f"Document {i}" for i in range(1000)]
 
 embeddings_with_progress = QwenEmbeddings(
     api_url="http://localhost:8000",
-    batch_size=32,
+    batch_size=8,  # Updated default batch size
     show_progress=True  # Shows progress bar
 )
 
 all_embeddings = embeddings_with_progress.embed_documents(large_document_list)
+
+# Or use the efficient batch endpoint
+batch_result = embeddings_with_progress.embed_batch(
+    queries=["query1", "query2"],
+    documents=large_document_list[:100],  # Process first 100 docs
+    dimensions=512  # Optional: override dimensions
+)
 ```
 
 ## API Reference
@@ -180,27 +214,53 @@ all_embeddings = embeddings_with_progress.embed_documents(large_document_list)
 
 #### Parameters
 - `api_url`: Base URL of the Qwen API server
-- `model_name`: Model name (default: "qwen3-embedding-8b")
-- `rerank_model_name`: Reranker model (default: "qwen3-reranker-8b")
+- `model_name`: Model name (default: "qwen3-embedding-4b")
 - `task`: Task type - "retrieval" or "clustering" (default: "retrieval")
-- `batch_size`: Batch size for processing (default: 32)
+- `dimensions`: Number of dimensions for Matryoshka embeddings (default: None)
+- `batch_size`: Batch size for processing (default: 8)
 - `show_progress`: Show progress bar (default: False)
-- `timeout`: Request timeout in seconds (default: 30)
+- `timeout`: Request timeout in seconds (default: 300)
 
 #### Methods
 - `embed_documents(texts)`: Embed a list of documents
 - `embed_query(text)`: Embed a single query
-- `rerank(query, documents, top_n)`: Rerank documents by relevance
+- `embed_batch(queries, documents, dimensions)`: Efficient batch processing
+- `search_similar(query, documents, top_k, return_scores)`: Find similar documents
 - `compute_similarity(embeddings1, embeddings2)`: Compute cosine similarity
+- `embed_dataframe_column(df, column_name)`: Embed DataFrame column
+- `get_available_models()`: Get list of available models
+- `get_available_tasks()`: Get available embedding tasks
+- `get_dimension_info()`: Get dimension information (Matryoshka)
 - `health_check()`: Check API health status
+- `set_dimensions(dimensions)`: Set dimensions for Matryoshka embeddings
+- `with_dimensions(dimensions)`: Create new instance with different dimensions
 
-### InfinityEmbeddings
+### InfinityEmbeddingsReranker
 
 #### Parameters
 - `api_url`: Base URL of the Infinity server
-- `model_name`: Model name for embeddings
+- `model_name`: Model name for embeddings (default: None)
+- `rerank_model_name`: Optional separate model name for reranking (default: None)
+- `task`: Task type - "retrieval" or "clustering" (default: "retrieval")
+- `dimensions`: Number of dimensions for Matryoshka embeddings (default: None)
+- `top_n`: Number of top-ranking documents to return (default: 3)
 - `batch_size`: Batch size for processing (default: 32)
 - `show_progress`: Show progress bar (default: False)
+- `timeout`: Request timeout in seconds (default: 300)
+
+#### Methods
+- `embed_documents(texts)`: Embed a list of documents (LangChain interface)
+- `embed_query(text)`: Embed a single query (LangChain interface)
+- `embed_batch(queries, documents, dimensions)`: Efficient batch processing
+- `rank(query, documents)`: Direct reranking of documents
+- `compress_documents(documents, query)`: LangChain document compression
+- `search_similar(query, documents, top_k, return_scores)`: Find similar documents
+- `compute_similarity(embeddings1, embeddings2)`: Compute cosine similarity
+- `embed_dataframe_column(df, column_name)`: Embed DataFrame column
+- `get_available_models()`: Get list of available models
+- `health_check()`: Check API health status
+- `set_dimensions(dimensions)`: Set dimensions for Matryoshka embeddings
+- `with_dimensions(dimensions)`: Create new instance with different dimensions
 
 ## Contributing
 
@@ -230,6 +290,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Contact**: Pratt Institute AI Team
 
 ## Changelog
+
+### v2.0.0 (2025-08-04)
+- **Major Update**: Separated embedding and reranking functionality
+- **QwenEmbeddings**: Removed reranking methods, focused on embeddings only
+- **InfinityEmbeddingsReranker**: New dual-interface class for both embeddings and reranking
+- **Matryoshka Support**: Added variable dimension embeddings for both classes
+- **New Methods**: Added `embed_batch()`, `search_similar()`, `get_available_tasks()`, `get_dimension_info()`
+- **Updated Defaults**: Changed default model to "qwen3-embedding-4b", batch size to 8, timeout to 300s
+- **Session Management**: Added persistent connection handling for Infinity server
+- **Enhanced API**: Improved error handling and response validation
 
 ### v1.0.0 (2025-06-09)
 - Initial release

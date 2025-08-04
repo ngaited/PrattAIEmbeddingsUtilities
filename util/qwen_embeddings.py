@@ -10,7 +10,7 @@ import numpy as np
 
 class QwenEmbeddings(BaseModel, Embeddings):
     """
-    A LangChain-compatible class to get embeddings from the Qwen API server.
+    A LangChain-compatible class to get embeddings from the Qwen API server with Matryoshka support.
     
     Example:
         .. code-block:: python
@@ -19,7 +19,8 @@ class QwenEmbeddings(BaseModel, Embeddings):
 
             embeddings = QwenEmbeddings(
                 api_url="http://localhost:8000",
-                model_name="qwen3-embedding-4b"
+                model_name="qwen3-embedding-8b",
+                dimensions=1024  # Matryoshka dimension support
             )
             
             # Use with LangChain
@@ -29,18 +30,21 @@ class QwenEmbeddings(BaseModel, Embeddings):
             query = "What is this about?"
             query_embedding = embeddings.embed_query(query)
             
-            # Use reranking
-            reranked = embeddings.rerank(
-                query="What is the capital?",
-                documents=["Beijing is the capital.", "Python is a language."],
-                top_n=1
+            # Use batch processing for efficiency
+            batch_result = embeddings.embed_batch(
+                queries=["query1", "query2"],
+                documents=["doc1", "doc2", "doc3"]
             )
+    
+    Available Models:
+        - qwen3-embedding-8b (Large model, 4096 dimensions)
+        - qwen3-embedding-4b (Smaller model, 512-2048 dimensions with Matryoshka support)
     """
     
     api_url: str = Field(..., description="The base URL of the Qwen API server")
-    model_name: str = Field(default="qwen3-embedding-4b", description="The model name to use for embeddings")
-    rerank_model_name: str = Field(default="qwen3-reranker-4b", description="The model name to use for reranking")
+    model_name: str = Field(default="qwen3-embedding-8b", description="The model name to use for embeddings. Available models: qwen3-embedding-8b, qwen3-embedding-4b")
     task: Literal["retrieval", "clustering"] = Field(default="retrieval", description="The embedding task type")
+    dimensions: Optional[int] = Field(default=None, description="Number of dimensions for Matryoshka embeddings")
     batch_size: int = Field(default=8, description="Batch size for processing multiple texts")
     show_progress: bool = Field(default=False, description="Whether to show progress bar for batch processing")
     timeout: int = Field(default=300, description="Request timeout in seconds")
@@ -53,9 +57,9 @@ class QwenEmbeddings(BaseModel, Embeddings):
     
     @computed_field
     @property
-    def rerank_endpoint(self) -> str:
-        """Compute the rerank endpoint URL."""
-        return f"{self.api_url.rstrip('/')}/v1/rerank"
+    def batch_endpoint(self) -> str:
+        """Compute the batch embeddings endpoint URL."""
+        return f"{self.api_url.rstrip('/')}/v1/embeddings/batch"
 
     def _get_embeddings_batch(self, texts: List[str], is_query: bool = False) -> List[List[float]]:
         """
@@ -75,13 +79,16 @@ class QwenEmbeddings(BaseModel, Embeddings):
         if not texts:
             return []
 
-        # For retrieval task with single query, the API will handle instruction
-        # For multiple texts in retrieval, we let the API handle it
+        # Build payload with Matryoshka dimension support
         payload = {
             "model": self.model_name,
             "input": texts,
             "task": self.task
         }
+        
+        # Add dimensions if specified (Matryoshka support)
+        if self.dimensions is not None:
+            payload["dimensions"] = self.dimensions
 
         try:
             response = requests.post(
@@ -182,60 +189,51 @@ class QwenEmbeddings(BaseModel, Embeddings):
         # For a single query in retrieval task, the API will add instruction
         return self._get_embeddings_batch([text], is_query=True)[0]
 
-    def rerank(
-        self, 
-        query: str, 
-        documents: List[Union[str, Dict[str, Any]]], 
-        task: Optional[str] = None,
-        top_n: Optional[int] = None,
-        return_documents: bool = True,
-        batch_size: int = 32
-    ) -> List[Dict[str, Any]]:
+    def embed_batch(
+        self,
+        queries: Optional[List[str]] = None,
+        documents: Optional[List[str]] = None,
+        dimensions: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
-        Rerank documents based on query relevance.
-
+        Efficiently process queries and documents separately using the batch endpoint.
+        
         Args:
-            query: The query text.
-            documents: List of documents (strings or dicts with 'text' field).
-            task: Optional task description (defaults to web search retrieval).
-            top_n: Number of top results to return.
-            return_documents: Whether to return document texts in results.
-
+            queries: List of query texts.
+            documents: List of document texts.
+            dimensions: Override dimensions for this specific call.
+            
         Returns:
-            List of reranked results with scores and documents.
+            Dictionary containing query_embeddings, document_embeddings, and optionally similarity_scores.
         """
-        if not documents:
-            return []
+        if not queries and not documents:
+            raise ValueError("Either queries or documents must be provided")
 
         payload = {
-            "model": self.rerank_model_name,
-            "query": query,
-            "documents": documents,
-            "top_n": top_n,
-            "return_documents": return_documents,
-            "batch_size": batch_size
+            "task": self.task
         }
         
-        if task:
-            payload["task"] = task
+        if queries:
+            payload["queries"] = queries
+        if documents:
+            payload["documents"] = documents
+            
+        # Use instance dimensions or override
+        dims = dimensions if dimensions is not None else self.dimensions
+        if dims is not None:
+            payload["dimensions"] = dims
 
         try:
             response = requests.post(
-                self.rerank_endpoint,
+                self.batch_endpoint,
                 json=payload,
                 timeout=self.timeout
             )
             response.raise_for_status()
-
-            data = response.json()
-            
-            if 'results' not in data:
-                raise ValueError("Unexpected API response format: missing 'results'")
-            
-            return data['results']
+            return response.json()
 
         except requests.exceptions.RequestException as e:
-            print(f"Reranking API call failed: {e}")
+            print(f"Batch API call failed: {e}")
             if 'response' in locals() and response is not None:
                 print(f"Status Code: {response.status_code}")
                 print(f"Response Body: {response.text}")
@@ -278,50 +276,51 @@ class QwenEmbeddings(BaseModel, Embeddings):
         texts = df[column_name].tolist()
         return self.embed_documents(texts)
 
-    def rerank_dataframe(
-        self, 
-        query: str, 
-        df: pd.DataFrame, 
-        text_column: str,
-        top_n: Optional[int] = None,
-        score_column: str = "rerank_score"
-    ) -> pd.DataFrame:
+    def search_similar(
+        self,
+        query: str,
+        documents: List[str],
+        top_k: int = 5,
+        return_scores: bool = True
+    ) -> Union[List[str], List[Dict[str, Any]]]:
         """
-        Rerank documents in a DataFrame based on query relevance.
+        Find most similar documents to a query using embeddings.
         
         Args:
             query: The query text.
-            df: DataFrame containing documents.
-            text_column: Column name containing document texts.
-            top_n: Number of top results to return.
-            score_column: Name for the new score column.
+            documents: List of document texts to search.
+            top_k: Number of top results to return.
+            return_scores: Whether to return similarity scores.
             
         Returns:
-            DataFrame sorted by relevance with added score column.
+            List of documents or list of dicts with document and score.
         """
-        if text_column not in df.columns:
-            raise ValueError(f"Column '{text_column}' not found in DataFrame.")
+        if not documents:
+            return []
+
+        # Use batch endpoint for efficiency
+        batch_result = self.embed_batch(queries=[query], documents=documents)
         
-        # Get documents from dataframe
-        documents = df[text_column].tolist()
+        if 'similarity_scores' in batch_result:
+            # API computed similarities for us
+            scores = batch_result['similarity_scores'][0]  # First (and only) query
+        else:
+            # Compute similarities manually
+            query_emb = batch_result['query_embeddings'][0]
+            doc_embs = batch_result['document_embeddings']
+            scores = np.dot(doc_embs, query_emb).tolist()
         
-        # Rerank
-        results = self.rerank(query, documents, top_n=top_n, return_documents=False)
+        # Create results with scores and indices
+        results = [(i, score, doc) for i, (score, doc) in enumerate(zip(scores, documents))]
         
-        # Create a mapping of original index to score
-        score_map = {result['index']: result['relevance_score'] for result in results}
+        # Sort by score (descending) and take top_k
+        results.sort(key=lambda x: x[1], reverse=True)
+        results = results[:top_k]
         
-        # Add scores to dataframe
-        df_copy = df.copy()
-        df_copy[score_column] = [score_map.get(i, 0.0) for i in range(len(df))]
-        
-        # Sort by score and filter top_n if specified
-        df_sorted = df_copy.sort_values(score_column, ascending=False)
-        
-        if top_n:
-            df_sorted = df_sorted.head(top_n)
-        
-        return df_sorted
+        if return_scores:
+            return [{"document": doc, "score": score, "index": idx} for idx, score, doc in results]
+        else:
+            return [doc for _, _, doc in results]
 
     def get_available_models(self) -> List[str]:
         """Get list of available models from the API."""
@@ -345,6 +344,16 @@ class QwenEmbeddings(BaseModel, Embeddings):
             print(f"Failed to get tasks: {e}")
             return {}
 
+    def get_dimension_info(self) -> Dict[str, Any]:
+        """Get information about supported dimensions (Matryoshka)."""
+        try:
+            response = requests.get(f"{self.api_url.rstrip('/')}/v1/dimensions", timeout=self.timeout)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"Failed to get dimension info: {e}")
+            return {"supports_matryoshka": False}
+
     def health_check(self) -> Dict[str, Any]:
         """Check API health status."""
         try:
@@ -353,3 +362,24 @@ class QwenEmbeddings(BaseModel, Embeddings):
             return response.json()
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}
+
+    def set_dimensions(self, dimensions: Optional[int]) -> None:
+        """
+        Set the dimensions for Matryoshka embeddings.
+        
+        Args:
+            dimensions: Number of dimensions, or None for full dimensions.
+        """
+        self.dimensions = dimensions
+
+    def with_dimensions(self, dimensions: Optional[int]) -> 'QwenEmbeddings':
+        """
+        Create a new instance with different dimensions.
+        
+        Args:
+            dimensions: Number of dimensions for the new instance.
+            
+        Returns:
+            New QwenEmbeddings instance with specified dimensions.
+        """
+        return self.model_copy(update={"dimensions": dimensions})

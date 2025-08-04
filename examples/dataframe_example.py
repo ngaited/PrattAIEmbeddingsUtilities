@@ -88,41 +88,47 @@ def dataframe_example():
     description_embeddings = embeddings.embed_dataframe_column(df, 'description')
     print(f"Created embeddings for {len(description_embeddings)} descriptions")
     
-    # Rerank courses based on a query
+    # Search for similar documents using the search_similar method
     query = "I want to learn about artificial intelligence and machine learning"
     print(f"\nQuery: {query}")
     
-    reranked_df = embeddings.rerank_dataframe(
+    # Use search_similar to find relevant documents
+    search_results = embeddings.search_similar(
         query=query,
-        df=df,
-        text_column='description',
-        top_n=5,
-        score_column='relevance_score'
+        documents=df['description'].tolist(),
+        top_k=5,
+        return_scores=True
     )
     
     print("\nTop 5 most relevant courses:")
     print("-" * 80)
-    for idx, row in reranked_df.iterrows():
+    for i, result in enumerate(search_results):
+        idx = result['index']
+        score = result['score']
+        row = df.iloc[idx]
         print(f"Course: {row['title']}")
         print(f"Category: {row['category']} | Difficulty: {row['difficulty']}")
-        print(f"Relevance Score: {row['relevance_score']:.4f}")
+        print(f"Relevance Score: {score:.4f}")
         print(f"Description: {row['description'][:100]}...")
         print()
     
-    # Filter by category and rerank
+    # Filter by category and search
     ai_ml_courses = df[df['category'] == 'AI/ML'].copy()
     print(f"\nFiltering to AI/ML courses only ({len(ai_ml_courses)} courses):")
     
-    ai_reranked = embeddings.rerank_dataframe(
+    ai_search_results = embeddings.search_similar(
         query="deep learning and neural networks",
-        df=ai_ml_courses,
-        text_column='description',
-        score_column='ai_relevance_score'
+        documents=ai_ml_courses['description'].tolist(),
+        top_k=5,
+        return_scores=True
     )
     
     print("\nAI/ML courses ranked by relevance to 'deep learning and neural networks':")
-    for idx, row in ai_reranked.iterrows():
-        print(f"- {row['title']} (Score: {row['ai_relevance_score']:.4f})")
+    for i, result in enumerate(ai_search_results):
+        idx = result['index']
+        score = result['score']
+        row = ai_ml_courses.iloc[idx]
+        print(f"- {row['title']} (Score: {score:.4f})")
     
     # Compare different queries
     queries = [
@@ -136,15 +142,21 @@ def dataframe_example():
     print("="*80)
     
     for query in queries:
-        top_course = embeddings.rerank_dataframe(
+        search_result = embeddings.search_similar(
             query=query,
-            df=df,
-            text_column='description',
-            top_n=1
-        ).iloc[0]
+            documents=df['description'].tolist(),
+            top_k=1,
+            return_scores=True
+        )
         
-        print(f"\nQuery: '{query}'")
-        print(f"Top course: {top_course['title']} (Score: {top_course['rerank_score']:.4f})")
+        if search_result:
+            top_result = search_result[0]
+            idx = top_result['index']
+            score = top_result['score']
+            top_course = df.iloc[idx]
+            
+            print(f"\nQuery: '{query}'")
+            print(f"Top course: {top_course['title']} (Score: {score:.4f})")
 
 
 if __name__ == "__main__":

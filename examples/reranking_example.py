@@ -3,17 +3,18 @@
 Example demonstrating reranking functionality for improved search results.
 """
 
-from util.qwen_embeddings import QwenEmbeddings
+from util.infinityEmbedding import InfinityEmbeddingsReranker
 
 
 def reranking_example():
     """Demonstrate document reranking based on query relevance."""
     
-    # Initialize embeddings client
-    embeddings = QwenEmbeddings(
-        api_url="http://localhost:8000",
-        model_name="qwen3-embedding-8b",
-        rerank_model_name="qwen3-reranker-8b"
+    # Initialize embeddings client with actual models running on backend
+    embeddings = InfinityEmbeddingsReranker(
+        api_url="http://localhost:8006",
+        model_name="BAAI/bge-base-en-v1.5",
+        rerank_model_name="Alibaba-NLP/gte-multilingual-reranker-base",
+        top_n=5
     )
     
     # Sample query
@@ -37,19 +38,17 @@ def reranking_example():
     print(f"\nReranking {len(documents)} documents...")
     
     # Rerank documents
-    reranked_results = embeddings.rerank(
+    reranked_results = embeddings.rank(
         query=query,
-        documents=documents,
-        top_n=5,  # Get top 5 most relevant
-        return_documents=True
+        documents=documents
     )
     
-    print(f"\nTop {len(reranked_results)} most relevant documents:")
+    print(f"\nTop {embeddings.top_n} most relevant documents:")
     print("-" * 80)
     
-    for i, result in enumerate(reranked_results):
+    for i, result in enumerate(reranked_results[:embeddings.top_n]):
         score = result['relevance_score']
-        document = result['document']['text'] if isinstance(result['document'], dict) else result['document']
+        document = result['document']
         original_index = result['index']
         
         print(f"{i+1}. Relevance Score: {score:.4f}")
